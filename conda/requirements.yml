@@ -1,0 +1,7 @@
+name: ZeRO
+dependencies:
+  - python=3.6
+  - jupyterlab
+  - pytorch
+  - pip:
+    - deepspeed
