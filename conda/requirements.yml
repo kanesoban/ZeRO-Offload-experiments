@@ -5,3 +5,5 @@ dependencies:
   - pytorch
   - pip:
     - deepspeed
+    - git+https://github.com/huggingface/transformers.git
+    - datasets
