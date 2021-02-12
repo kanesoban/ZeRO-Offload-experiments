@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from datasets import load_dataset
+from torch.utils.tensorboard import SummaryWriter
+from transformers.integrations import TensorBoardCallback
 
 import transformers
 from transformers import (
@@ -43,11 +45,27 @@ from transformers import (
     set_seed,
 )
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
+from transformers import TrainerCallback
+from pytorch_lightning import loggers as pl_loggers
+from pynvml import *
 
 
 logger = logging.getLogger(__name__)
 MODEL_CONFIG_CLASSES = list(MODEL_FOR_MASKED_LM_MAPPING.keys())
 MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
+
+
+class GPUMemoryPrinterCallback(TrainerCallback):
+    def __init__(self, device=0):
+        nvmlInit()
+        self.device = device
+        self.device_handle = nvmlDeviceGetHandleByIndex(device)
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        info = nvmlDeviceGetMemoryInfo(self.device_handle)
+        print('Total GPU memory for device {}: {}'.format(self.device, info.total))
+        print('Free GPU memory for device {}: {}'.format(self.device, info.free))
+        print('Used GPU memory for device {}: {}'.format(self.device, info.used))
 
 
 @dataclass
@@ -384,11 +402,14 @@ def main():
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
             load_from_cache_file=not data_args.overwrite_cache,
+            #batch_size=100
         )
 
     # Data collator
     # This one will take care of randomly masking the tokens.
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=data_args.mlm_probability)
+
+    tb_logger = pl_loggers.TensorBoardLogger('logs/')
 
     # Initialize our Trainer
     trainer = Trainer(
@@ -397,8 +418,11 @@ def main():
         train_dataset=tokenized_datasets["train"] if training_args.do_train else None,
         eval_dataset=tokenized_datasets["validation"] if training_args.do_eval else None,
         tokenizer=tokenizer,
-        data_collator=data_collator,
+        data_collator=data_collator
     )
+    writer = SummaryWriter('logs')
+    trainer.add_callback(TensorBoardCallback(tb_writer=writer))
+    trainer.add_callback(GPUMemoryPrinterCallback())
 
     # Training
     if training_args.do_train:
