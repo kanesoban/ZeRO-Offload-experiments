@@ -1,6 +1,6 @@
 #!/bin/bash
 
-python run_mlm.py  --model_name_or_path bert-base-uncased\
+python run_mlm.py  --model_name_or_path distilbert-base-uncased\
   --dataset_name wikitext\
   --dataset_config_name wikitext-2-raw-v1\
   --do_train\
