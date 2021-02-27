@@ -1,0 +1,69 @@
+{
+  "train_micro_batch_size_per_gpu": 16,
+  "steps_per_print": 2000,
+  "optimizer": {
+    "type": "Adam",
+    "params": {
+      "lr": 5e-05,
+      "betas": [
+        0.9,
+        0.999
+      ],
+      "eps": 1e-08,
+      "weight_decay": 3e-7
+    }
+  },
+  "scheduler": {
+    "type": "WarmupLR",
+    "params": {
+      "warmup_min_lr": 0,
+      "warmup_max_lr": 0.001,
+      "warmup_num_steps": 1000
+    }
+  },
+  "wall_clock_breakdown": false,
+  "fp16": {
+    "enabled": true,
+    "loss_scale": 0,
+    "initial_scale_power": 32,
+    "loss_scale_window": 1000,
+    "hysteresis": 2,
+    "min_loss_scale": 1
+  },
+  "zero_optimization": {
+    "stage": 1,
+    "allgather_partitions": true,
+    "allgather_bucket_size": 5e8,
+    "overlap_comm": false,
+    "reduce_scatter": true,
+    "reduce_bucket_size": 5e8,
+    "contiguous_gradients": false,
+    "cpu_offload": false
+  },
+  "activation_checkpointing": {
+    "partition_activations": true,
+    "cpu_checkpointing": true,
+    "contiguous_memory_optimization": true,
+    "number_checkpoints": null,
+    "synchronize_checkpoint_boundary": false,
+    "profile": false
+  },
+  "sparse_attention": {
+    "mode": "fixed",
+    "block": 16,
+    "different_layout_per_head": true,
+    "num_local_blocks": 4,
+    "num_global_blocks": 1,
+    "attention": "bidirectional",
+    "horizontal_global_attention": false,
+    "num_different_global_patterns": 4,
+    "num_random_blocks": 0,
+    "local_window_blocks": [
+      4
+    ],
+    "global_block_indices": [
+      0
+    ],
+    "num_sliding_window_blocks": 3
+  }
+}

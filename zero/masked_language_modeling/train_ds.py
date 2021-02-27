@@ -22,15 +22,14 @@ https://huggingface.co/models?filter=masked-lm
 
 import logging
 import math
-import os
-import sys
 from dataclasses import dataclass, field
 from typing import Optional
 
 from datasets import load_dataset
 from torch.utils.tensorboard import SummaryWriter
 from transformers.integrations import TensorBoardCallback
-import deepspeed
+from deepspeed.pipe import PipelineModule
+import torch.distributed as dist
 
 import transformers
 from transformers import (
@@ -176,16 +175,6 @@ class DataTrainingArguments:
                 assert extension in ["csv", "json", "txt"], "`validation_file` should be a csv, a json or a txt file."
 
 
-@dataclass
-class DSTrainingArguments(TrainingArguments):
-    use_deepspeed: bool = field(
-        default=False,
-        metadata={
-            "help": "Whether to use deepspeed to speed up training"
-        }
-    )
-
-
 def main():
     data_args, model_args, training_args = get_arguments()
 
@@ -240,17 +229,15 @@ def main():
 
     tokenized_datasets = build_tokenized_dataset(training_args, data_args, datasets, tokenizer)
 
-    if training_args.use_deepspeed:
-        return train_deepspeed()
-    else:
-        return train_vanilla(data_args, last_checkpoint, model, model_args, tokenized_datasets, tokenizer, training_args)
+    return train(data_args, last_checkpoint, model, model_args, tokenized_datasets, tokenizer,
+                 training_args)
 
 
 def get_arguments():
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, DSTrainingArguments))
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
     # parser = deepspeed.add_config_arguments(parser)
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
@@ -351,6 +338,12 @@ def build_model(config, model_args, tokenizer):
         logger.info("Training new model from scratch")
         model = AutoModelForMaskedLM.from_config(config)
     model.resize_token_embeddings(len(tokenizer))
+
+    '''
+    dist.init_process_group("nccl", rank=0, world_size=2)
+    model = PipelineModule(layers=model, num_stages=2)
+    '''
+
     return model
 
 
@@ -449,11 +442,7 @@ def build_tokenized_dataset(training_args, data_args, datasets, tokenizer):
     return tokenized_datasets
 
 
-def train_deepspeed():
-    return None
-
-
-def train_vanilla(data_args, last_checkpoint, model, model_args, tokenized_datasets, tokenizer, training_args):
+def train(data_args, last_checkpoint, model, model_args, tokenized_datasets, tokenizer, training_args):
     # Data collator
     # This one will take care of randomly masking the tokens.
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=data_args.mlm_probability)

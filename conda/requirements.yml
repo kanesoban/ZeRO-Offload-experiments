@@ -3,6 +3,10 @@ dependencies:
   - python=3.6
   - jupyterlab
   - pytorch
+  - mpi4py
+  - cudatoolkit=10.1.243
+  - mpu
+  - torchtext
   - pip:
     - deepspeed
     - git+https://github.com/huggingface/transformers.git
