@@ -3,8 +3,6 @@ import torchvision
 import torchvision.transforms as transforms
 import argparse
 import deepspeed
-import matplotlib.pyplot as plt
-import numpy as np
 import torch.nn as nn
 from pynvml import *
 import torchvision.models as models
@@ -49,144 +47,122 @@ def add_argument():
     return args
 
 
-def imshow(img):
-    img = img / 2 + 0.5  # unnormalize
-    npimg = img.numpy()
-    plt.imshow(np.transpose(npimg, (1, 2, 0)))
-    plt.show()
+def main():
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    ])
 
+    trainset = torchvision.datasets.CIFAR10(root='./data',
+                                            train=True,
+                                            download=True,
+                                            transform=transform)
+    trainloader = torch.utils.data.DataLoader(trainset,
+                                              batch_size=4,
+                                              shuffle=True,
+                                              num_workers=2)
 
-transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-])
+    testset = torchvision.datasets.CIFAR10(root='./data',
+                                           train=False,
+                                           download=True,
+                                           transform=transform)
+    testloader = torch.utils.data.DataLoader(testset,
+                                             batch_size=4,
+                                             shuffle=False,
+                                             num_workers=2)
 
-trainset = torchvision.datasets.CIFAR10(root='./data',
-                                        train=True,
-                                        download=True,
-                                        transform=transform)
-trainloader = torch.utils.data.DataLoader(trainset,
-                                          batch_size=4,
-                                          shuffle=True,
-                                          num_workers=2)
+    classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
-testset = torchvision.datasets.CIFAR10(root='./data',
-                                       train=False,
-                                       download=True,
-                                       transform=transform)
-testloader = torch.utils.data.DataLoader(testset,
-                                         batch_size=4,
-                                         shuffle=False,
-                                         num_workers=2)
+    nvmlInit()
+    device_id = 0
+    device_handle = nvmlDeviceGetHandleByIndex(device_id)
 
-classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
-
-# get some random training images
-dataiter = iter(trainloader)
-images, labels = dataiter.next()
-
-
-nvmlInit()
-device_id = 0
-device_handle = nvmlDeviceGetHandleByIndex(device_id)
-
-device = torch.device("cuda:{}".format(device_id) if torch.cuda.is_available() else "cpu")
-
-info = nvmlDeviceGetMemoryInfo(device_handle)
-print('Total GPU memory for device before training {}: {}'.format(device, info.total))
-print('Free GPU memory for device before training {}: {}'.format(device, info.free))
-print('Used GPU memory for device before training {}: {}'.format(device, info.used))
-used_memory_0 = info.used
-
-net = FP16_Module(models.resnet50())
-# net = Net()
-parameters = filter(lambda p: p.requires_grad, net.parameters())
-args = add_argument()
-
-# Initialize DeepSpeed to use the following features
-# 1) Distributed model
-# 2) Distributed data loader
-# 3) DeepSpeed optimizer
-model_engine, optimizer, trainloader, __ = deepspeed.initialize(
-    args=args, model=net, model_parameters=parameters, training_data=trainset)
-
-criterion = nn.CrossEntropyLoss()
-
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-net.to(device)
-
-used_memory = 0
-epochs = 1
-for epoch in range(epochs):  # loop over the dataset multiple times
-    running_loss = 0.0
-    for i, data in enumerate(trainloader):
-        # get the inputs; data is a list of [inputs, labels]
-        inputs, labels = data[0].to(model_engine.local_rank), data[1].to(
-            model_engine.local_rank)
-
-        outputs = model_engine(inputs)
-        loss = criterion(outputs, labels)
-
-        model_engine.backward(loss)
-        model_engine.step()
-
-        # print statistics
-        running_loss += loss.item()
-        if i % 2000 == 1999:  # print every 2000 mini-batches
-            print('[%d, %5d] loss: %.3f' %
-                  (epoch + 1, i + 1, running_loss / 2000))
-            running_loss = 0.0
+    device = torch.device("cuda:{}".format(device_id) if torch.cuda.is_available() else "cpu")
 
     info = nvmlDeviceGetMemoryInfo(device_handle)
-    print('Total GPU memory for device {}: {}'.format(device, info.total))
-    print('Free GPU memory for device {}: {}'.format(device, info.free))
-    print('Used GPU memory for device {}: {}'.format(device, info.used))
-    used_memory += info.used
+    print('Total GPU memory for device before training {}: {}'.format(device, info.total))
+    print('Free GPU memory for device before training {}: {}'.format(device, info.free))
+    print('Used GPU memory for device before training {}: {}'.format(device, info.used))
+    used_memory_0 = info.used
 
-used_memory /= epochs
-print('Finished Training')
-print('Used memory by model (MB): {}'.format((used_memory - used_memory_0) / (1024 * 1024)))
+    net = FP16_Module(models.resnet50())
+    parameters = filter(lambda p: p.requires_grad, net.parameters())
+    args = add_argument()
 
-dataiter = iter(testloader)
-images, labels = dataiter.next()
+    model_engine, optimizer, trainloader, __ = deepspeed.initialize(
+        args=args, model=net, model_parameters=parameters, training_data=trainset)
 
-# print images
-# imshow(torchvision.utils.make_grid(images))
-print('GroundTruth: ', ' '.join('%5s' % classes[labels[j]] for j in range(4)))
+    criterion = nn.CrossEntropyLoss()
 
-outputs = net(images.to(model_engine.local_rank))
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    net.to(device)
 
-_, predicted = torch.max(outputs, 1)
+    used_memory = 0
+    epochs = 1
+    for epoch in range(epochs):  # loop over the dataset multiple times
+        running_loss = 0.0
+        for i, data in enumerate(trainloader):
+            # get the inputs; data is a list of [inputs, labels]
+            inputs, labels = data[0].to(model_engine.local_rank), data[1].to(
+                model_engine.local_rank)
 
-print('Predicted: ', ' '.join('%5s' % classes[predicted[j]] for j in range(4)))
+            outputs = model_engine(inputs)
+            loss = criterion(outputs, labels)
 
-correct = 0
-total = 0
-with torch.no_grad():
-    for data in testloader:
-        images, labels = data
-        outputs = net(images.to(model_engine.local_rank))
-        _, predicted = torch.max(outputs.data, 1)
-        total += labels.size(0)
-        correct += (predicted == labels.to(
-            model_engine.local_rank)).sum().item()
+            model_engine.backward(loss)
+            model_engine.step()
 
-print('Accuracy of the network on the 10000 test images: %d %%' %
-      (100 * correct / total))
+            # print statistics
+            running_loss += loss.item()
+            if i % 2000 == 1999:  # print every 2000 mini-batches
+                print('[%d, %5d] loss: %.3f' %
+                      (epoch + 1, i + 1, running_loss / 2000))
+                running_loss = 0.0
 
-class_correct = list(0. for i in range(10))
-class_total = list(0. for i in range(10))
-with torch.no_grad():
-    for data in testloader:
-        images, labels = data
-        outputs = net(images.to(model_engine.local_rank))
-        _, predicted = torch.max(outputs, 1)
-        c = (predicted == labels.to(model_engine.local_rank)).squeeze()
-        for i in range(4):
-            label = labels[i]
-            class_correct[label] += c[i].item()
-            class_total[label] += 1
+        info = nvmlDeviceGetMemoryInfo(device_handle)
+        print('Total GPU memory for device {}: {}'.format(device, info.total))
+        print('Free GPU memory for device {}: {}'.format(device, info.free))
+        print('Used GPU memory for device {}: {}'.format(device, info.used))
+        used_memory += info.used
 
-for i in range(10):
-    print('Accuracy of %5s : %2d %%' %
-          (classes[i], 100 * class_correct[i] / class_total[i]))
+    used_memory /= epochs
+    print('Finished Training')
+    print('Used memory by model (MB): {}'.format((used_memory - used_memory_0) / (1024 * 1024)))
+
+    test_model(classes, model_engine, net, testloader)
+
+
+def test_model(classes, model_engine, net, testloader):
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for data in testloader:
+            images, labels = data
+            outputs = net(images.to(model_engine.local_rank))
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels.to(
+                model_engine.local_rank)).sum().item()
+    print('Accuracy of the network on the 10000 test images: %d %%' %
+          (100 * correct / total))
+    class_correct = list(0. for i in range(10))
+    class_total = list(0. for i in range(10))
+    with torch.no_grad():
+        for data in testloader:
+            images, labels = data
+            outputs = net(images.to(model_engine.local_rank))
+            _, predicted = torch.max(outputs, 1)
+            c = (predicted == labels.to(model_engine.local_rank)).squeeze()
+            for i in range(4):
+                label = labels[i]
+                class_correct[label] += c[i].item()
+                class_total[label] += 1
+    for i in range(10):
+        print('Accuracy of %5s : %2d %%' %
+              (classes[i], 100 * class_correct[i] / class_total[i]))
+
+
+if __name__ == "__main__":
+    main()
+
+
