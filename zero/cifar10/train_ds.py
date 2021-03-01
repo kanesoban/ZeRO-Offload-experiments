@@ -6,11 +6,12 @@ import deepspeed
 import torch.nn as nn
 from pynvml import *
 import torchvision.models as models
+from tqdm import tqdm
 
 from zero.fp16.fp16 import FP16_Module
 
 
-def add_argument():
+def parse_arguments():
     parser = argparse.ArgumentParser(description='CIFAR')
 
     # cuda
@@ -24,14 +25,9 @@ def add_argument():
                         help='whether use exponential moving average')
 
     # train
-    parser.add_argument('-b',
-                        '--batch_size',
-                        default=32,
-                        type=int,
-                        help='mini-batch size (default: 32)')
     parser.add_argument('-e',
                         '--epochs',
-                        default=30,
+                        default=1,
                         type=int,
                         help='number of total epochs (default: 30)')
     parser.add_argument('--local_rank',
@@ -47,7 +43,7 @@ def add_argument():
     return args
 
 
-def main():
+def train(args=None):
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
@@ -57,10 +53,6 @@ def main():
                                             train=True,
                                             download=True,
                                             transform=transform)
-    trainloader = torch.utils.data.DataLoader(trainset,
-                                              batch_size=4,
-                                              shuffle=True,
-                                              num_workers=2)
 
     testset = torchvision.datasets.CIFAR10(root='./data',
                                            train=False,
@@ -77,17 +69,13 @@ def main():
     device_id = 0
     device_handle = nvmlDeviceGetHandleByIndex(device_id)
 
-    device = torch.device("cuda:{}".format(device_id) if torch.cuda.is_available() else "cpu")
-
     info = nvmlDeviceGetMemoryInfo(device_handle)
-    print('Total GPU memory for device before training {}: {}'.format(device, info.total))
-    print('Free GPU memory for device before training {}: {}'.format(device, info.free))
-    print('Used GPU memory for device before training {}: {}'.format(device, info.used))
     used_memory_0 = info.used
 
     net = FP16_Module(models.resnet50())
     parameters = filter(lambda p: p.requires_grad, net.parameters())
-    args = add_argument()
+    if not args:
+        args = parse_arguments()
 
     model_engine, optimizer, trainloader, __ = deepspeed.initialize(
         args=args, model=net, model_parameters=parameters, training_data=trainset)
@@ -98,8 +86,7 @@ def main():
     net.to(device)
 
     used_memory = 0
-    epochs = 1
-    for epoch in range(epochs):  # loop over the dataset multiple times
+    for epoch in tqdm(range(args.epochs)):  # loop over the dataset multiple times
         running_loss = 0.0
         for i, data in enumerate(trainloader):
             # get the inputs; data is a list of [inputs, labels]
@@ -120,16 +107,14 @@ def main():
                 running_loss = 0.0
 
         info = nvmlDeviceGetMemoryInfo(device_handle)
-        print('Total GPU memory for device {}: {}'.format(device, info.total))
-        print('Free GPU memory for device {}: {}'.format(device, info.free))
-        print('Used GPU memory for device {}: {}'.format(device, info.used))
         used_memory += info.used
 
-    used_memory /= epochs
+    used_memory /= args.epochs
     print('Finished Training')
     print('Used memory by model (MB): {}'.format((used_memory - used_memory_0) / (1024 * 1024)))
 
     test_model(classes, model_engine, net, testloader)
+    return used_memory
 
 
 def test_model(classes, model_engine, net, testloader):
@@ -163,6 +148,4 @@ def test_model(classes, model_engine, net, testloader):
 
 
 if __name__ == "__main__":
-    main()
-
-
+    train()

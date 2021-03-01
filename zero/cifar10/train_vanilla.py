@@ -1,3 +1,5 @@
+import argparse
+
 import torch.nn as nn
 import torch.optim as optim
 import torch
@@ -5,6 +7,29 @@ import torchvision
 import torchvision.transforms as transforms
 import torchvision.models as models
 from pynvml import *
+
+
+def add_argument():
+    parser = argparse.ArgumentParser(description='CIFAR')
+
+    # cuda
+    parser.add_argument('--with_cuda',
+                        default=False,
+                        action='store_true',
+                        help='use CPU in case there\'s no GPU support')
+    parser.add_argument('--use_ema',
+                        default=False,
+                        action='store_true',
+                        help='whether use exponential moving average')
+
+    # train
+    parser.add_argument('-e',
+                        '--epochs',
+                        default=1,
+                        type=int,
+                        help='number of total epochs (default: 30)')
+
+    return parser.parse_args()
 
 
 def main():
@@ -26,10 +51,6 @@ def main():
                                            train=False,
                                            download=True,
                                            transform=transform)
-    testloader = torch.utils.data.DataLoader(testset,
-                                             batch_size=4,
-                                             shuffle=False,
-                                             num_workers=2)
 
     classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
@@ -46,11 +67,9 @@ def main():
     device = torch.device("cuda:{}".format(device_id) if torch.cuda.is_available() else "cpu")
 
     info = nvmlDeviceGetMemoryInfo(device_handle)
-    print('Total GPU memory for device before training {}: {}'.format(device, info.total))
-    print('Free GPU memory for device before training {}: {}'.format(device, info.free))
-    print('Used GPU memory for device before training {}: {}'.format(device, info.used))
     used_memory_0 = info.used
 
+    args = add_argument()
     net = models.resnet50()
     net.to(device)
     criterion = nn.CrossEntropyLoss()
@@ -83,8 +102,7 @@ def main():
     optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
 
     used_memory = 0
-    epochs = 1
-    for epoch in range(epochs):  # loop over the dataset multiple times
+    for epoch in range(args.epochs):  # loop over the dataset multiple times
         running_loss = 0.0
         for i, data in enumerate(trainloader, 0):
             # get the inputs; data is a list of [inputs, labels]
@@ -107,12 +125,9 @@ def main():
                 running_loss = 0.0
 
         info = nvmlDeviceGetMemoryInfo(device_handle)
-        print('Total GPU memory for device {}: {}'.format(device, info.total))
-        print('Free GPU memory for device {}: {}'.format(device, info.free))
-        print('Used GPU memory for device {}: {}'.format(device, info.used))
         used_memory += info.used
 
-    used_memory /= epochs
+    used_memory /= args.epochs
     print('Finished Training')
     print('Used memory by model (MB): {}'.format((used_memory - used_memory_0) / (1024 * 1024)))
 
