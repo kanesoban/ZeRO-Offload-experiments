@@ -15,13 +15,13 @@
     "enabled": true
   },
   "zero_optimization": {
-    "stage": 1,
+    "stage": 2,
     "allgather_partitions": true,
     "allgather_bucket_size": 5e8,
     "overlap_comm": false,
     "reduce_scatter": true,
     "reduce_bucket_size": 5e8,
     "contiguous_gradients": false,
-    "cpu_offload": false
+    "cpu_offload": true
   }
 }

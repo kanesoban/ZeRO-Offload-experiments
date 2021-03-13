@@ -1,7 +1,10 @@
+import sys
+import subprocess
 import argparse
 import random
 import json
-import tempfile, os
+import tempfile
+import os
 from shutil import copyfile
 from copy import copy
 
@@ -10,24 +13,23 @@ import deepspeed
 
 from zero.cifar10.train_ds import train
 
-
 TEMPLATE_DS_CONFIG = {
-  "train_batch_size": 24,
-  "train_micro_batch_size_per_gpu": 3,
-  "steps_per_print": 10,
-  "optimizer": {
-    "type": "Adam",
-    "params": {
-      "lr": 3e-5,
-      "weight_decay": 0.0,
-      "bias_correction": False
-    }
-  },
-  "gradient_clipping": 1.0,
-  "fp16": {
-    "enabled": True
-  },
-  "zero_optimization": None
+    "train_batch_size": 24,
+    "train_micro_batch_size_per_gpu": 3,
+    "steps_per_print": 10,
+    "optimizer": {
+        "type": "Adam",
+        "params": {
+            "lr": 3e-5,
+            "weight_decay": 0.0,
+            "bias_correction": False
+        }
+    },
+    "gradient_clipping": 1.0,
+    "fp16": {
+        "enabled": True
+    },
+    "zero_optimization": None
 }
 
 STAGE = [1, 2]
@@ -38,7 +40,6 @@ REDUCE_SCATTER = [False, True]
 REDUCE_BUCKET_SIZE = [5e8]
 CONTIGUOUS_GRADIENTS = [False, True]
 CPU_OFFLOAD = [False, True]
-
 
 tried_parameters = set()
 
@@ -105,20 +106,34 @@ def main():
             json.dump(params, f)
         args = parse_arguments()
         args.deepspeed_config = ds_config
+
+        try:
+            training_output = subprocess.check_output(
+                [sys.executable, 'train_ds.py', '--deepspeed', '--local_rank', '0', '--deepspeed_config', ds_config])
+            used_memory = int(float(training_output.decode('utf-8').split('Used memory by model (MB): ')[-1].split()[0].strip()))
+        except subprocess.CalledProcessError:
+            print('Skipping configuration')
+            continue
+
+        '''
         try:
             used_memory = train(args)
         except Exception as e:
             continue
+        '''
 
         if used_memory < best_memory:
             best_memory = used_memory
             best_parameters = ds_config
+            copyfile(best_parameters, 'best_ds_config.json')
+            with open('best_memory.txt', 'w') as f:
+                f.write('Iteration: {}'.format(count + 1))
+                f.write('Least memory used in training: {} MB'.format(best_memory))
 
         count += 1
         if count >= 100:
             break
 
-    copyfile(best_parameters, 'best_ds_config.json')
     print('Least memory used in training: {} MB'.format(best_memory))
 
 

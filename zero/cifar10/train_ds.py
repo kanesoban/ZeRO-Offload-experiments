@@ -113,7 +113,7 @@ def train(args=None):
     print('Finished Training')
     print('Used memory by model (MB): {}'.format((used_memory - used_memory_0) / (1024 * 1024)))
 
-    test_model(classes, model_engine, net, testloader)
+    #test_model(classes, model_engine, net, testloader)
     return used_memory
 
 
